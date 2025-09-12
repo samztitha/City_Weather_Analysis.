@@ -1,0 +1,186 @@
+---
+title: "City Weather Analysis"
+author: "Samztitha"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Introduction
+
+This R Markdown performs an exploratory and comparative analysis of daily weather (Temperature, Humidity, Rainfall) across three Indian cities: **Chennai, Delhi, and Mumbai**.
+
+# Setup
+
+``` r
+# Packages - install if needed
+list.of.packages <- c("tidyverse", "lubridate", "knitr", "scales")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"]) ]
+if(length(new.packages)) install.packages(new.packages)
+
+library(tidyverse)
+library(lubridate)
+library(knitr)
+library(scales)
+```
+
+# Dataset (sample creation - optional)
+
+If you already have the provided CSV `city_weather.csv` with columns `Date,City,Temperature,Humidity,Rainfall`, skip this step. Otherwise, run the code below to create the dataset automatically.
+
+``` r
+# Generate sample dataset (Jan–Mar 2025 for Chennai, Delhi, Mumbai)
+set.seed(42)
+
+dates <- seq(as.Date("2025-01-01"), as.Date("2025-03-31"), by = "day")
+cities <- c("Chennai", "Delhi", "Mumbai")
+
+data_list <- list()
+
+for (city in cities) {
+  for (d in dates) {
+    if (city == "Chennai") {
+      temp <- rnorm(1, mean = 28, sd = 2)
+      humidity <- runif(1, 65, 85)
+      rainfall <- rpois(1, lambda = 1)
+    } else if (city == "Delhi") {
+      temp <- rnorm(1, mean = 20, sd = 6)
+      humidity <- runif(1, 30, 60)
+      rainfall <- rpois(1, lambda = 2)
+    } else { # Mumbai
+      temp <- rnorm(1, mean = 26, sd = 3)
+      humidity <- runif(1, 60, 80)
+      rainfall <- rpois(1, lambda = 1)
+    }
+    data_list <- append(data_list, list(data.frame(
+      Date = d, City = city, 
+      Temperature = round(temp,1),
+      Humidity = round(humidity,1),
+      Rainfall = rainfall
+    )))
+  }
+}
+
+city_weather <- do.call(rbind, data_list)
+
+# Save to CSV (optional)
+write.csv(city_weather, "city_weather.csv", row.names = FALSE)
+
+head(city_weather)
+```
+
+# Task 1: Data Import & Inspection
+
+``` r
+# 1. Import the dataset into R
+weather <- read_csv("city_weather.csv", col_types = cols(
+  Date = col_date(format = "%Y-%m-%d"),
+  City = col_character(),
+  Temperature = col_double(),
+  Humidity = col_double(),
+  Rainfall = col_double()
+))
+
+# 2. Display the first few rows and column names
+glimpse(weather)
+head(weather)
+colnames(weather)
+
+# 3. Check for missing values and handle them
+summary(weather)
+missing_summary <- weather %>% summarise_all(~sum(is.na(.)))
+knitr::kable(missing_summary, caption = "Missing values by column")
+
+# Handling missing values - options shown
+weather_final <- weather %>% drop_na()
+```
+
+# Task 2: Data Cleaning & Manipulation
+
+``` r
+# 1. Filter the dataset to include only Chennai, Delhi, and Mumbai
+selected_cities <- c("Chennai", "Delhi", "Mumbai")
+weather_sel <- weather_final %>% filter(City %in% selected_cities)
+
+# 2. Create Temperature in Fahrenheit
+weather_sel <- weather_sel %>% mutate(Temp_F = Temperature * 9/5 + 32)
+
+# 3. Calculate weekly averages
+weather_weekly <- weather_sel %>%
+  mutate(Week = floor_date(Date, unit = "week", week_start = 1)) %>%
+  group_by(City, Week) %>%
+  summarise(
+    Avg_Temp_C = mean(Temperature, na.rm = TRUE),
+    Avg_Temp_F = mean(Temp_F, na.rm = TRUE),
+    Avg_Humidity = mean(Humidity, na.rm = TRUE),
+    Avg_Rainfall = mean(Rainfall, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+knitr::kable(head(weather_weekly, 10), caption = "Weekly averages (sample)")
+```
+
+# Task 3: Data Analysis
+
+``` r
+# 1. Find hottest and coldest city
+city_avg_temp <- weather_sel %>%
+  group_by(City) %>%
+  summarise(Mean_Temp = mean(Temperature, na.rm = TRUE))
+
+hottest_city <- city_avg_temp %>% filter(Mean_Temp == max(Mean_Temp))
+coldest_city <- city_avg_temp %>% filter(Mean_Temp == min(Mean_Temp))
+
+city_avg_temp
+hottest_city
+coldest_city
+
+# 2. Identify highest rainfall day per city
+max_rainfall_days <- weather_sel %>%
+  group_by(City) %>%
+  filter(Rainfall == max(Rainfall, na.rm = TRUE)) %>%
+  arrange(City, Date)
+
+max_rainfall_days
+
+# 3. Compare average humidity levels
+humidity_compare <- weather_sel %>%
+  group_by(City) %>%
+  summarise(Avg_Humidity = mean(Humidity, na.rm = TRUE)) %>%
+  arrange(desc(Avg_Humidity))
+
+humidity_compare
+```
+
+# Task 4: Visualization
+
+``` r
+# 1. Line graph: temperature trends
+ggplot(weather_sel, aes(x = Date, y = Temperature, color = City)) +
+  geom_line(alpha = 0.8) +
+  geom_smooth(method = "loess", se = FALSE, linetype = "dashed") +
+  labs(title = "Daily Temperature Trends", x = "Date", y = "Temperature (°C)") +
+  scale_x_date(date_labels = "%b %d") +
+  theme_minimal()
+
+# 2. Bar plots: weekly rainfall
+ggplot(weather_weekly, aes(x = Week, y = Avg_Rainfall, fill = City)) +
+  geom_col(position = position_dodge(width = 6)) +
+  labs(title = "Weekly Average Rainfall by City", x = "Week", y = "Avg Rainfall (mm)") +
+  scale_x_date(date_breaks = "2 weeks", date_labels = "%b %d") +
+  theme_minimal()
+
+# 3. Boxplots: humidity
+ggplot(weather_sel, aes(x = City, y = Humidity)) +
+  geom_boxplot() +
+  labs(title = "Humidity Distribution by City", x = "City", y = "Humidity (%)") +
+  theme_minimal()
+```
+
+# Conclusion
+
+-   **Hottest city**: `r hottest_city$City` with average temperature `r round(hottest_city$Mean_Temp,1)` °C.
+-   **Coldest city**: `r coldest_city$City` with average temperature `r round(coldest_city$Mean_Temp,1)` °C.
+-   **Days with maximum rainfall**: See `max_rainfall_days` table.
+-   **Average humidity comparison**: `r paste(humidity_compare$City, collapse = ", ")` in descending order.
+
+This analysis demonstrates seasonal differences among Chennai (hot & humid), Delhi (more variable), and Mumbai (moderate). Further analysis can extend to air quality or wind data for deeper insights.
